@@ -5,6 +5,9 @@ set -eoux pipefail
 # Move forward with the script, only if this variable is set.
 echo "${CI}"
 
+# Old Lokoctl version without prefix v.
+readonly old_lokoctl_version="0.5.0"
+
 log() {
   local message="${1:-""}"
   echo -e "\\033[1;33m${message}\\033[0m"
@@ -95,6 +98,9 @@ finalise_packet_location() {
 }
 
 install_cluster() {
+  git checkout "${1}"
+  cat "$platform-cluster.lokocfg.envsubst" | envsubst '$AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY $PUB_KEY $CLUSTER_ID $AWS_DEFAULT_REGION $AWS_DNS_ZONE $AWS_DNS_ZONE_ID $PACKET_PROJECT_ID $EMAIL $GITHUB_CLIENT_ID $GITHUB_CLIENT_SECRET $DEX_STATIC_CLIENT_CLUSTERAUTH_ID $DEX_STATIC_CLIENT_CLUSTERAUTH_SECRET $GANGWAY_REDIRECT_URL $GANGWAY_SESSION_KEY $DEX_INGRESS_HOST $GANGWAY_INGRESS_HOST $ISSUER_HOST $REDIRECT_URI $API_SERVER_URL $AUTHORIZE_URL $TOKEN_URL $PACKET_LOCATION $ARM_SUBSCRIPTION_ID $ARM_TENANT_ID $ARM_CLIENT_ID $ARM_CLIENT_SECRET' >"$platform-cluster.lokocfg"
+
   log "Running lokoctl version $(${LOKOCTL_PATH} version)"
 
   if [ "${RET}" != 0 ]; then
@@ -153,12 +159,10 @@ delete_cluster() {
 }
 
 download_old_lokoctl() {
-  lokoctl_version="0.5.0"
-
   tmpdir=$(mktemp -d)
-  curl -o "${tmpdir}"/lokoctl.tar.gz -L https://github.com/kinvolk/lokomotive/releases/download/v"${lokoctl_version}"/lokoctl_"${lokoctl_version}"_linux_amd64.tar.gz
+  curl -o "${tmpdir}"/lokoctl.tar.gz -L https://github.com/kinvolk/lokomotive/releases/download/v"${old_lokoctl_version}"/lokoctl_"${old_lokoctl_version}"_linux_amd64.tar.gz
   tar -xvzf "${tmpdir}"/lokoctl.tar.gz -C "${tmpdir}"
-  LOKOCTL_PATH="${tmpdir}/lokoctl_${lokoctl_version}_linux_amd64/lokoctl"
+  LOKOCTL_PATH="${tmpdir}/lokoctl_${old_lokoctl_version}_linux_amd64/lokoctl"
 
   "${LOKOCTL_PATH}" version
 }
@@ -166,7 +170,7 @@ download_old_lokoctl() {
 install_old_lokomotive_cluster() {
   download_old_lokoctl
 
-  install_cluster
+  install_cluster v"${old_lokoctl_version}"
   override_fluo
   install_components
   run_e2e_tests
@@ -176,6 +180,9 @@ install_old_lokomotive_cluster() {
 
 log "Deploying test cluster on $platform"
 resource_dir=$(pwd)/..
+pr_commit=$(git log --format="%H" -n 1)
+export KUBECONFIG=$HOME/lokoctl-assets/cluster-assets/auth/kubeconfig
+echo "export KUBECONFIG=$KUBECONFIG" >> ~/.bashrc
 
 generate_ssh_keys
 load_ssh_keys
@@ -183,19 +190,15 @@ generate_cluster_id
 finalise_packet_location
 
 cd "ci/$platform"
-cat "$platform-cluster.lokocfg.envsubst" | envsubst '$AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY $PUB_KEY $CLUSTER_ID $AWS_DEFAULT_REGION $AWS_DNS_ZONE $AWS_DNS_ZONE_ID $PACKET_PROJECT_ID $EMAIL $GITHUB_CLIENT_ID $GITHUB_CLIENT_SECRET $DEX_STATIC_CLIENT_CLUSTERAUTH_ID $DEX_STATIC_CLIENT_CLUSTERAUTH_SECRET $GANGWAY_REDIRECT_URL $GANGWAY_SESSION_KEY $DEX_INGRESS_HOST $GANGWAY_INGRESS_HOST $ISSUER_HOST $REDIRECT_URI $API_SERVER_URL $AUTHORIZE_URL $TOKEN_URL $PACKET_LOCATION $ARM_SUBSCRIPTION_ID $ARM_TENANT_ID $ARM_CLIENT_ID $ARM_CLIENT_SECRET' >"$platform-cluster.lokocfg"
-
-export KUBECONFIG=$HOME/lokoctl-assets/cluster-assets/auth/kubeconfig
-echo "export KUBECONFIG=$KUBECONFIG" >> ~/.bashrc
 RET=0
 
-if [ "${platform}" = "packet_upgrade" ]; then
+if [ ! -z "${UPDATE_TEST}" ]; then
   install_old_lokomotive_cluster
 fi
 
 LOKOCTL_PATH="${resource_dir}/lokoctl-bin/lokoctl"
 
-install_cluster
+install_cluster "${pr_commit}"
 override_fluo
 install_components
 run_e2e_tests
