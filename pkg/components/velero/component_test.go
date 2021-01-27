@@ -170,6 +170,14 @@ component "velero" {
       bucket   = "foo"
       provider = "aws"
     }
+		
+    tolerations {
+      key = "key1"
+      value = "value1"
+      operator = "Equal"
+      effect = "NoSchedule"
+      toleration_seconds = "1"
+    }
   }
 }
 `
